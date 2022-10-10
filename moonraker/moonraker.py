@@ -39,6 +39,7 @@ from typing import (
     Union,
     TypeVar,
 )
+
 if TYPE_CHECKING:
     from websockets import WebRequest, Subscribable
     from components.data_store import DataStore
@@ -63,6 +64,160 @@ SENTINEL = SentinelClass.get_instance()
 AsyncHTTPClient.configure(
     "tornado.curl_httpclient.CurlAsyncHTTPClient",
     defaults=dict(user_agent="Moonraker"))
+
+MOONRAKER_INDEX = None
+
+def offset_to_number(offset, probe_count, mesh_min, mesh_max, bltouch_x=0.0, bltouch_y=0.0):
+    """
+    坐标点转数字编号
+    offset 坐标点
+    line 行数
+    rows 列数
+    mesh_min: 0,40
+    mesh_max: 264,305
+    // probe at -0.000,40.000 is z=1.259375
+
+    """
+    x, y = offset.split(',')
+    min_x, min_y = mesh_min.split(',')
+    max_x, max_y = mesh_max.split(',')
+    row_count, line_count = probe_count.split(',')
+
+    min_x = float(min_x) - bltouch_x
+    min_y = float(min_y) - bltouch_y
+    max_x = float(max_x) - bltouch_x
+    max_y = float(max_y) - bltouch_y
+    line_count = int(line_count)
+    row_count = int(row_count)
+
+    m_table = []
+    for i in range(line_count):
+        line = []
+        if i % 2:
+            for j in range(row_count, 0, -1):
+                line.append(j + i * row_count)
+            m_table.append(line)
+        else:
+            for j in range(1, row_count + 1):
+                line.append(j + i * row_count)
+            m_table.append(line)
+
+    print(m_table)
+
+    unit_x = float((max_x-min_x)/(row_count-1))
+    unit_y = float((max_y-min_y)/(line_count-1))
+    print(min_x, min_y, max_x, max_y, unit_x, unit_y)
+    for i in range(line_count):
+        # 当x,y都处于最小坐标时, 返回最小编号 1
+        if float(x) <= min_x + 1 and float(y) <= min_y + 1:
+            return 1
+        if float(y) <= unit_y*i + min_y + 1:
+            for j in range(row_count):
+                if float(x) <= min_x + j * unit_x:
+                    return m_table[i][j]
+
+
+def read_config():
+    try:
+        import configparser
+        cp = configparser.ConfigParser()
+        path = "/mnt/UDISK/printer_config/printer.cfg"
+
+        # If it is in multi machine control mode, select the configuration file according to the currently selected USB port
+        # import yaml
+        if os.path.exists("/etc/init.d/klipper_service.2"):
+            global MOONRAKER_INDEX
+            str_printer_id = str(MOONRAKER_INDEX)
+            if str_printer_id == "1":
+                pass
+            else:
+                path = "/mnt/UDISK/printer_config" + str_printer_id + "/printer.cfg"
+
+        try:
+            cp.read(path, encoding="utf8")
+        except:
+            cp.read(path, encoding="gbk")
+        probe_count = cp.get('bed_mesh', 'probe_count').split('#')[0].strip()
+        mesh_min = cp.get('bed_mesh', 'mesh_min').split('#')[0].strip()
+        mesh_max = cp.get('bed_mesh', 'mesh_max').split('#')[0].strip()
+        try:
+            x_offset = float(
+                cp.get('bltouch', 'x_offset').split('#')[0].strip())
+            y_offset = float(
+                cp.get('bltouch', 'y_offset').split('#')[0].strip())
+        except:
+            x_offset = 0.0
+            y_offset = 0.0
+
+        return probe_count, mesh_min, mesh_max, x_offset, y_offset
+    except Exception as e:
+        logging.exception(e)
+        return None, None, None, None, None
+
+
+def parse_bed_mesh_response(response):
+    """
+    解析自动调平返回字段
+    """
+    # response = "// probe at 264.000,238.750 is z=1.375625"
+    try:
+        if "// probe at " in response:
+            result = response.split("at")[-1]
+            offset, z = result.split('is')
+            offset = offset.strip()
+            z = z.split('=')[-1]
+            return offset, z
+    except Exception as e:
+        logging.exception(e)
+    return None, None
+
+
+def deal_bed_mesh_response(response):
+    probe_count, mesh_min, mesh_max, x_offset, y_offset = read_config()
+    if probe_count and mesh_min and mesh_max:
+        offset, z = parse_bed_mesh_response(response)
+        if offset and z:
+            if not x_offset:
+                x_offset = 0.0
+            if not y_offset:
+                y_offset = 0.0
+            number = offset_to_number(offset, probe_count, mesh_min, mesh_max, x_offset, y_offset)
+            if number:
+                x, y = offset.split(',')
+                new_response = "//auto_bed_level %s,%s,%s,%s" % (number, x, y, z)
+                return new_response
+    return response
+
+def get_yaml_info(_config_file=None):
+    """
+    读取yaml文件信息
+    """
+    # if not _config_file:
+    if not os.path.exists(_config_file):
+        return {}
+    config_data = {}
+    try:
+        import yaml
+        with open(_config_file, 'r', encoding='utf-8') as f:
+            config_data = yaml.load(f.read(), Loader=yaml.Loader)
+    except Exception as err:
+        pass
+    return config_data
+
+def set_yaml_info(_config_file=None, data=None):
+    """
+    写入yaml文件信息
+    """
+    if not _config_file:
+        return
+    try:
+        import yaml
+        with open(_config_file, 'w+', encoding='utf-8') as f:
+            yaml.dump(data, f, allow_unicode=True)
+            f.flush()
+        os.system("sync")
+    except Exception as e:
+        logging.exception("yaml file write failed-----error=%s" % e)
 
 class Server:
     error = ServerError
@@ -94,6 +249,19 @@ class Server:
         # Klippy Connection Handling
         self.klippy_address: str = config.get(
             'klippy_uds_address', "/tmp/klippy_uds")
+        global MOONRAKER_INDEX
+        MOONRAKER_INDEX = self.klippy_address
+
+        if MOONRAKER_INDEX == "/tmp/klippy_uds":
+            MOONRAKER_INDEX = '1'
+        elif MOONRAKER_INDEX == "/tmp/klippy_uds2":
+            MOONRAKER_INDEX = '2'
+        elif MOONRAKER_INDEX == "/tmp/klippy_uds3":
+            MOONRAKER_INDEX = '3'
+        elif MOONRAKER_INDEX == "/tmp/klippy_uds4":
+            MOONRAKER_INDEX = '4'
+        self.printer_id = MOONRAKER_INDEX
+
         self.klippy_connection = KlippyConnection(
             self.process_command, self.on_connection_closed, event_loop)
         self.klippy_info: Dict[str, Any] = {}
@@ -159,6 +327,7 @@ class Server:
 
     async def _start_server(self):
         optional_comps: List[Coroutine] = []
+        logging.info(self.components)
         for name, component in self.components.items():
             if not hasattr(component, "component_init"):
                 continue
@@ -222,6 +391,10 @@ class Server:
 
         # load remaining optional components
         for section in cfg_sections:
+            logging.info("++++++++++++++++section:{}".format(section))
+            if "update_manager" in section:
+                logging.info("----------continue section:{}".format(section))
+                continue
             self.load_component(config, section, None)
 
     def load_component(self,
@@ -509,6 +682,11 @@ class Server:
                         " unable to set SD Card path")
 
     def _process_gcode_response(self, response: str) -> None:
+        logging.info("_process_gcode_response is {}".format(response))
+        if "probe at" in response:
+            response = deal_bed_mesh_response(response)
+            logging.info("_process_gcode_response after deal_bed_mesh_response "
+                         "is {}".format(response))
         self.send_event("server:gcode_response", response)
 
     def _process_status_update(self,
@@ -541,8 +719,6 @@ class Server:
         else:
             if rpc_method == "gcode/script":
                 script = web_request.get_str('script', "")
-                data_store: DataStore = self.lookup_component('data_store')
-                data_store.store_gcode_command(script)
             return await self._request_standard(web_request)
 
     async def _request_subscripton(self,
@@ -741,13 +917,13 @@ class KlippyConnection:
 
     async def send_request(self, request: BaseRequest) -> None:
         if self.iostream is None:
-            request.notify(ServerError("Klippy Host not connected", 503))
+            request.notify(ServerError('{"code":"key2", "msg":"Klippy Host not connected"}', 503)) # {"code":"key0", "msg":"%s%s"}
             return
         data = json.dumps(request.to_dict()).encode() + b"\x03"
         try:
             await self.iostream.write(data)
         except iostream.StreamClosedError:
-            request.notify(ServerError("Klippy Host not connected", 503))
+            request.notify(ServerError('{"code":"key2", "msg":"Klippy Host not connected"}', 503)) # {"code":"key0", "msg":"%s%s"}
 
     def is_connected(self) -> bool:
         return self.iostream is not None and not self.iostream.closed()

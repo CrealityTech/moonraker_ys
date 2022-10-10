@@ -146,7 +146,8 @@ class ProcStats:
             'moonraker_stats': result,
             'cpu_temp': cpu_temp,
             'network': net,
-            'websocket_connections': websocket_count
+            'websocket_connections': websocket_count,
+            "klippy_state": self.server.get_klippy_state()
         })
         self.last_update_time = update_time
         self.last_proc_time = proc_time

@@ -358,8 +358,7 @@ class MoonrakerApp:
                 jrpc_methods.append(".".join(name_parts))
         if not is_remote and len(request_methods) != len(jrpc_methods):
             raise self.server.error(
-                "Invalid API definition.  Number of websocket methods must "
-                "match the number of request methods")
+                """{"code":"key133", "msg": "Invalid API definition. Number of websocket methods must match the number of request methods", "values": []}""")
         need_object_parser = endpoint.startswith("objects/")
         api_def = APIDefinition(endpoint, uri, jrpc_methods, request_methods,
                                 transports, callback, need_object_parser)
@@ -379,6 +378,7 @@ class AuthorizedRequestHandler(tornado.web.RequestHandler):
         self.cors_enabled = False
         if auth is not None:
             self.cors_enabled = auth.check_cors(origin, self)
+        self.set_header("Access-Control-Allow-Origin", "*")
 
     def prepare(self) -> None:
         auth: AuthComp = self.server.lookup_component('authorization', None)
@@ -531,8 +531,7 @@ class DynamicRequestHandler(AuthorizedRequestHandler):
             args = self._parse_query()
         except Exception:
             raise ServerError(
-                "Error Parsing Request Arguments. "
-                "Is the Content-Type correct?")
+                """"{"code":"key134", "msg": "Error Parsing Request Arguments. Is the Content-Type correct?", "values": []}""")
         content_type = self.request.headers.get('Content-Type', "").strip()
         if content_type.startswith("application/json"):
             try:

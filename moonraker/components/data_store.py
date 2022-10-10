@@ -150,8 +150,12 @@ class DataStore:
             cmd = cmd.strip()
             if not cmd:
                 continue
-            self.gcode_queue.append(
-                {'message': script, 'time': curtime, 'type': "command"})
+            # 命令行-延迟摄影指令不回显
+            if "SET_GCODE_VARIABLE MACRO=TIMELAPSE_TAKE_FRAME VARIABLE=takingframe VALUE=False" == script:
+                pass
+            else:
+                self.gcode_queue.append(
+                    {'message': script, 'time': curtime, 'type': "command"})
 
     async def _handle_gcode_store_request(self,
                                           web_request: WebRequest

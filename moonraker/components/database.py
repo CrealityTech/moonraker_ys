@@ -63,13 +63,35 @@ def getitem_with_default(item: Dict, field: Any) -> Any:
     return item[field]
 
 
+def get_yaml_info(_config_file=None):
+    """
+    读取yaml文件信息
+    """
+    # if not _config_file:
+    if not os.path.exists(_config_file):
+        return {}
+    config_data = {}
+    try:
+        import yaml
+        with open(_config_file, 'r', encoding='utf-8') as f:
+            config_data = yaml.load(f.read(), Loader=yaml.Loader)
+    except Exception as err:
+        pass
+    return config_data
+
+
 class MoonrakerDatabase:
     def __init__(self, config: ConfigHelper) -> None:
         self.server = config.get_server()
         self.namespaces: Dict[str, object] = {}
         self.enable_debug = config.getboolean("enable_database_debug", False)
+
         self.database_path = os.path.expanduser(config.get(
-            'database_path', "~/.moonraker_database"))
+            'database_path', "/mnt/UDISK/.moonraker_database"))
+        if os.path.exists("/etc/init.d/klipper_service.2") and self.server.printer_id != "1":
+            self.database_path = os.path.expanduser(config.get(
+                'database_path', "/mnt/UDISK/.moonraker_database" + "." + self.server.printer_id))
+
         if not os.path.isdir(self.database_path):
             os.mkdir(self.database_path)
         self.lmdb_env = lmdb.open(self.database_path, map_size=MAX_DB_SIZE,

@@ -255,6 +255,11 @@ class JsonRPC:
             logging.exception(log_msg)
         else:
             logging.info(log_msg)
+
+        if code == 400 and '"msg"' in msg:
+            json_msg = eval(msg)
+            msg = json.dumps(json_msg)
+
         return {
             'jsonrpc': "2.0",
             'error': {'code': code, 'message': msg},
@@ -450,11 +455,11 @@ class WebSocket(WebSocketHandler, Subscribable):
         self.wsm.remove_websocket(self)
 
     def check_origin(self, origin: str) -> bool:
-        if not super(WebSocket, self).check_origin(origin):
-            auth: AuthComp = self.server.lookup_component('authorization', None)
-            if auth is not None:
-                return auth.check_cors(origin)
-            return False
+        # if not super(WebSocket, self).check_origin(origin):
+        #     auth: AuthComp = self.server.lookup_component('authorization', None)
+        #     if auth is not None:
+        #         return auth.check_cors(origin)
+        #     return False
         return True
 
     # Check Authorized User

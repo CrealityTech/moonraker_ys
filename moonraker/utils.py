@@ -64,7 +64,8 @@ class LocalQueueHandler(logging.handlers.QueueHandler):
             self.handleError(record)
 
 # Timed Rotating File Handler, based on Klipper's implementation
-class MoonrakerLoggingHandler(logging.handlers.TimedRotatingFileHandler):
+# class MoonrakerLoggingHandler(logging.handlers.TimedRotatingFileHandler):
+class MoonrakerLoggingHandler(logging.handlers.RotatingFileHandler):
     def __init__(self, app_args: Dict[str, Any], **kwargs) -> None:
         super().__init__(app_args['log_file'], **kwargs)
         self.rollover_info: Dict[str, str] = {
@@ -131,8 +132,10 @@ def setup_logging(app_args: Dict[str, Any]
         logging.info(f"{name}: {val}")
     file_hdlr = None
     if app_args.get('log_file', ""):
+        # file_hdlr = MoonrakerLoggingHandler(
+        #     app_args, when='midnight', backupCount=2)
         file_hdlr = MoonrakerLoggingHandler(
-            app_args, when='midnight', backupCount=2)
+            app_args, maxBytes=20 * 1024 * 1024, backupCount=3, mode='a')
         formatter = logging.Formatter(
             '%(asctime)s [%(filename)s:%(funcName)s()] - %(message)s')
         file_hdlr.setFormatter(formatter)
@@ -196,5 +199,5 @@ def load_system_module(name: str) -> ModuleType:
             sys.path.pop(0)
             break
     else:
-        raise ServerError(f"Unable to import module {name}")
+        raise ServerError("""{"code":"key136", "msg": "Unable to import module %s", "values": [%s]}""" % (name, name))
     return module

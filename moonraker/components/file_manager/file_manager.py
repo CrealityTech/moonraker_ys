@@ -12,6 +12,8 @@ import logging
 import json
 import tempfile
 import asyncio
+import time
+
 from inotify_simple import INotify
 from inotify_simple import flags as iFlags
 
@@ -226,7 +228,7 @@ class FileManager:
         metadata = self.gcode_metadata.get(requested_file, None)
         if metadata is None:
             raise self.server.error(
-                f"Metadata not available for <{requested_file}>", 404)
+                """{"code":"key86", "msg": "Metadata not available for <""" + requested_file + """>", "values": [""" + '"' + requested_file + '"' + """]}""", 404)
         metadata['filename'] = requested_file
         return metadata
 
@@ -256,7 +258,7 @@ class FileManager:
                 result['action'] = "delete_dir"
                 if directory.strip("/") == root:
                     raise self.server.error(
-                        "Cannot delete root directory")
+                        """{"code":"key87", "msg": "Cannot delete root directory", "values": []}""")
                 if not os.path.isdir(dir_path):
                     raise self.server.error(
                         f"Directory does not exist ({directory})")
@@ -505,6 +507,74 @@ class FileManager:
             'ext': f_ext
         }
 
+    def create_fluidd_png(self, file_path):
+        # 生成fluidd可以识别的png
+        if not file_path:
+            return
+        file_name = os.path.basename(file_path).split(".gcode")[0]
+        data_list = []
+        flag = False
+        count = 0
+        data_32x32 = ""
+        data_300x300 = ""
+        with open(file_path, "r") as f:
+            while True:
+                line_data = str(f.readline())
+                if line_data.startswith("; png begin") or line_data.startswith(
+                    "; thumbnail begin"):
+                    flag = True
+                    count += 1
+                    continue
+                count += 1
+                if count == 20 and not flag:
+                    break
+                if flag:
+                    if line_data.startswith(
+                        "; png end") or line_data.startswith("; thumbnail end"):
+                        break
+                    data_list.append(line_data.strip("; ").strip("\n"))
+            if data_list:
+                data_32x32 = "".join(data_list)
+        if data_32x32:
+            data_list = []
+            flag = False
+            count = 0
+            with open(file_path, "r") as f:
+                while True:
+                    line_data = str(f.readline())
+                    if line_data.startswith(
+                        "; png begin 300*300") or line_data.startswith(
+                        "; thumbnail begin 300*300"):
+                        flag = True
+                        count += 1
+                        continue
+                    count += 1
+                    if count == 2000 and not flag:
+                        break
+                    if flag:
+                        if line_data.startswith(
+                            "; png end") or line_data.startswith(
+                            "; thumbnail end"):
+                            break
+                        data_list.append(line_data.strip("; ").strip("\n"))
+                if data_list:
+                    data_300x300 = "".join(data_list)
+        import base64
+        if data_32x32 and data_300x300:
+            png_32x32 = "/root/gcode_files/.thumbs/" + file_name + "-32x32.png"
+            png_300x300 = "/root/gcode_files/.thumbs/" + file_name + ".png"
+            try:
+                with open(png_32x32, "wb") as f:
+                    ret = base64.b64decode(data_32x32)
+                    f.write(ret)
+                    f.flush()
+                with open(png_300x300, "wb") as f2:
+                    ret2 = base64.b64decode(data_300x300)
+                    f2.write(ret2)
+                    f2.flush()
+            except Exception as err:
+                logging.error(err)
+
     async def _finish_gcode_upload(self,
                                    upload_info: Dict[str, Any]
                                    ) -> Dict[str, Any]:
@@ -523,6 +593,24 @@ class FileManager:
             upload_info['filename'], finfo).wait()
         started: bool = False
         queued: bool = False
+
+        if upload_info.get("unzip_ufp") == True and upload_info.get("ext") == ".ufp":
+            try:
+                file_name = upload_info.get("filename", "")[0:-6]
+                self.add_png_data(file_name)
+            except Exception as err:
+                pass
+        if upload_info.get("filename", "").endswith(".gcode"):
+            try:
+                self.create_fluidd_png(upload_info.get("dest_path", ""))
+            except Exception as err:
+                pass
+        while True:
+            from subprocess import call
+            time.sleep(2.0)
+            call("sync", shell=True)
+            break
+
         if upload_info['start_print']:
             if can_start:
                 kapis: APIComp = self.server.lookup_component('klippy_apis')
@@ -544,6 +632,7 @@ class FileManager:
         if queued:
             self.server.send_event("file_manager:upload_queued",
                                    upload_info['filename'])
+
         return {
             'item': {
                 'path': upload_info['filename'],
@@ -553,6 +642,62 @@ class FileManager:
             'print_queued': queued,
             'action': "create_file"
         }
+
+    def add_png_data(self, file_name):
+        import base64
+        data = b""
+        png_name = file_name + ".png"
+        path_png = "/root/gcode_files/.thumbs/%s" % png_name
+        if os.path.exists(path_png):
+            with open(path_png, "rb") as f:
+                data = f.read()
+        # res = "; png begin 300*300\n"
+        res = "; thumbnail begin 300*300\n"
+        data = str(base64.b64encode(data))
+        data = data[2:]
+        data = data[0:-1]
+
+        while True:
+            r1 = "; " + data[0:76] + "\n"
+            res += r1
+            data = data[76:]
+            if not data:
+                break
+        # res += "; png end\n"
+        res += "; thumbnail end\n"
+
+        data = b""
+        png_name = file_name + "-32x32.png"
+        path_png_32x32 = "/root/gcode_files/.thumbs/%s" % png_name
+        if os.path.exists(path_png_32x32):
+            with open(path_png_32x32, "rb") as f:
+                data = f.read()
+        # res2 = "; png begin 32*32\n"
+        res2 = "; thumbnail begin 32*32\n"
+        data = str(base64.b64encode(data))
+        data = data[2:]
+        data = data[0:-1]
+        while True:
+            r1 = "; " + data[0:76] + "\n"
+            res2 += r1
+            data = data[76:]
+            if not data:
+                break
+        # res2 += "; png end\n"
+        res2 += "; thumbnail end\n"
+        data2 = res2 + res
+        gcode_name = file_name + ".gcode"
+        path_gcode = "/root/gcode_files/%s" % gcode_name
+        from subprocess import call
+        if os.path.exists(path_gcode):
+            all_data = ""
+            with open(path_gcode, "r+") as f:
+                all_data = f.read()
+            s = data2 + all_data
+            with open(path_gcode, "w") as f2:
+                f2.write(s)
+                f2.flush()
+            call("sync", shell=True)
 
     async def _finish_standard_upload(self,
                                       upload_info: Dict[str, Any]
@@ -1562,7 +1707,7 @@ class MetadataStorage:
         metadata: Dict[str, Any] = decoded_resp['metadata']
         if not metadata:
             # This indicates an error, do not add metadata for this
-            raise self.server.error("Unable to extract metadata")
+            raise self.server.error("""{"code":"key89", "msg": "Unable to extract metadata", "values": []}""")
         metadata.update({'print_start_time': None, 'job_id': None})
         self.mddb[path] = dict(metadata)
         metadata['filename'] = path
