@@ -290,19 +290,23 @@ class Machine:
             lines = resp.split('\n')
             services = [line.split()[0].strip() for line in lines
                         if ".service" in line.strip()]
+            for svc in services:
+                sname = svc.rsplit('.', 1)[0]
+                for allowed in ALLOWED_SERVICES:
+                    if sname.startswith(allowed):
+                        self.available_services[sname] = {
+                            'active_state': "unknown",
+                            'sub_state': "unknown"
+                        }
+            avail_list = list(self.available_services.keys())
+            self.system_info['available_services'] = avail_list
+            self.system_info['service_state'] = self.available_services
         except Exception:
             services = []
-        for svc in services:
-            sname = svc.rsplit('.', 1)[0]
-            for allowed in ALLOWED_SERVICES:
-                if sname.startswith(allowed):
-                    self.available_services[sname] = {
-                        'active_state': "unknown",
-                        'sub_state': "unknown"
-                    }
-        avail_list = list(self.available_services.keys())
-        self.system_info['available_services'] = avail_list
-        self.system_info['service_state'] = self.available_services
+            # 如果当前为818系统则直接写死
+            # Linux Creality-b9dfe0 4.9.191 #103 SMP PREEMPT Tue Jul 12 10:06:28 UTC 2022 aarch64 GNU/Linux
+            # self.system_info['available_services'] = ["klipper", "klipper_mcu", "moonraker"]
+            self.system_info['available_services'] = ["klipper", "klipper_mcu"]
         await self.update_service_status(notify=False)
         self.init_evt.set()
 

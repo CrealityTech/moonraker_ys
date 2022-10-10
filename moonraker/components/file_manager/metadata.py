@@ -68,12 +68,15 @@ def _regex_find_ints(pattern: str, data: str) -> List[int]:
 
 def _regex_find_first(pattern: str, data: str) -> Optional[float]:
     match = re.search(pattern, data)
+    # print(f"_regex_find_first {pattern}")
     val: Optional[float] = None
+    # print(f"_regex_find_first {pattern} get {match}")
     if match:
         try:
             val = float(match.group(1))
         except Exception:
             return None
+    # print(f"_regex_find_first {pattern} return {val}")
     return val
 
 # Slicer parsing implementations
@@ -665,10 +668,152 @@ class IceSL(BaseSlicer):
             r"; bed_temp_degree_c :\s+(\d+\.?\d*)", self.header_data)
 
 
+class Creality(BaseSlicer):
+    def check_identity(self, data: str) -> Optional[Dict[str, str]]:
+        aliases = {
+            # 'Creative3D': r"PrusaSlicer\s(.*)\son",
+            # 'SuperSlicer': r"SuperSlicer\s(.*)\son",
+            'Creative3D': r"Creative3D",
+            'Creality': r"Creality"
+        }
+        for name, expr in aliases.items():
+            match = re.search(expr, data)
+            if match:
+                return {
+                    'slicer': name,
+                    'slicer_version': "1.0"
+                }
+        return None
+
+    def parse_first_layer_height(self) -> Optional[float]:
+        # Check percentage
+        # pct = _regex_find_first(
+        #     r";MINZ:(\d+)", self.footer_data)
+        # if pct is not None:
+        #     if self.layer_height is None:
+        #         # Failed to parse the original layer height, so it is not
+        #         # possible to calculate a percentage
+        #         return None
+        #     return round(pct / 100. * self.layer_height, 6)
+        return _regex_find_first(
+            r";MINZ:(\d+\.?\d*)", self.footer_data)
+
+    def parse_layer_height(self) -> Optional[float]:
+        pattern = r";Layer\sheight:\s(\d+\.?\d*)"
+        # print(";Layer height:" in self.footer_data)
+        self.layer_height = _regex_find_first(
+            pattern, self.footer_data)
+        return self.layer_height
+
+    def parse_object_height(self) -> Optional[float]:
+        matches = re.findall(
+            r";MAXZ:(\d+\.?\d*)", self.footer_data)
+        if matches:
+            try:
+                matches = [float(m) for m in matches]
+            except Exception:
+                pass
+            else:
+                return max(matches)
+        return self._parse_max_float(r"G1\sZ\d+\.\d*\sF", self.footer_data)
+
+    def parse_filament_total(self) -> Optional[float]:
+        # return _regex_find_first(
+        #     r"filament\sused\s\[mm\]\s=\s(\d+\.\d*)", self.footer_data)
+        # ;Filament used:2.15385m
+        filament_total = _regex_find_first(
+            r";Filament used:(\d+\.?\d*)m", self.footer_data)
+        filament_total = filament_total * 1000
+        return filament_total
+
+    def parse_filament_weight_total(self) -> Optional[float]:
+        filament_total = _regex_find_first(
+            r";Filament used:(\d+\.?\d*)m", self.footer_data)
+        filament_weight_total = filament_total * 5.88
+        return filament_weight_total
+        # filament_total = filament_total * 1000
+        # return _regex_find_first(
+        #     r"total\sfilament\sused\s\[g\]\s=\s(\d+\.\d*)", self.footer_data)
+
+    def parse_estimated_time(self) -> Optional[float]:
+        # ;TIME:3450
+        # time_match = re.search(
+        #     r';\sestimated\sprinting\stime.*', self.footer_data)
+        # if not time_match:
+        #     return None
+        # total_time = 0
+        # time_group = time_match.group()
+        # time_patterns = [(r"(\d+)d", 24*60*60), (r"(\d+)h", 60*60),
+        #                  (r"(\d+)m", 60), (r"(\d+)s", 1)]
+        # try:
+        #     for pattern, multiplier in time_patterns:
+        #         t = re.search(pattern, time_group)
+        #         if t:
+        #             total_time += int(t.group(1)) * multiplier
+        # except Exception:
+        #     return None
+        # return round(total_time, 2)
+        total_time = _regex_find_first(
+            r";TIME:(\d+)", self.footer_data)
+        return total_time
+
+    def parse_thumbnails(self) -> Optional[List[Dict[str, Any]]]:
+        for data in [self.header_data, self.footer_data]:
+            thumb_matches: List[str] = re.findall(
+                r"; png begin[;/\+=\w\s]+?; png end", data)
+            if thumb_matches:
+                break
+        else:
+            return None
+        thumb_dir = os.path.join(os.path.dirname(self.path), ".thumbs")
+        if not os.path.exists(thumb_dir):
+            try:
+                os.mkdir(thumb_dir)
+            except Exception:
+                log_to_stderr(f"Unable to create thumb dir: {thumb_dir}")
+                return None
+        thumb_base = os.path.splitext(os.path.basename(self.path))[0]
+        parsed_matches: List[Dict[str, Any]] = []
+        for match in thumb_matches:
+            lines = re.split(r"\r?\n", match.replace('; ', ''))
+            info = _regex_find_ints(r".*", lines[0])
+            data = "".join(lines[1:-1])
+            if len(info) != 3:
+                log_to_stderr(
+                    f"MetadataError: Error parsing thumbnail"
+                    f" header: {lines[0]}")
+                continue
+            if len(data) != info[2]:
+                log_to_stderr(
+                    f"MetadataError: Thumbnail Size Mismatch: "
+                    f"detected {info[2]}, actual {len(data)}")
+                continue
+            thumb_name = f"{thumb_base}-{info[0]}x{info[1]}.png"
+            thumb_path = os.path.join(thumb_dir, thumb_name)
+            rel_thumb_path = os.path.join(".thumbs", thumb_name)
+            with open(thumb_path, "wb") as f:
+                f.write(base64.b64decode(data.encode()))
+            parsed_matches.append({
+                'width': info[0], 'height': info[1],
+                'size': os.path.getsize(thumb_path),
+                'relative_path': rel_thumb_path})
+        return parsed_matches
+
+    def parse_first_layer_extr_temp(self) -> Optional[float]:
+        # return _regex_find_first(
+        #     r"; first_layer_temperature = (\d+\.?\d*)", self.footer_data)
+        return _regex_find_first(
+            r";Print Temperature:(\d+\.?\d*)", self.footer_data)
+
+    def parse_first_layer_bed_temp(self) -> Optional[float]:
+        return _regex_find_first(
+            r";Bed Temperature:(\d+\.?\d*)", self.footer_data)
+
+
 READ_SIZE = 512 * 1024
 SUPPORTED_SLICERS: List[Type[BaseSlicer]] = [
     PrusaSlicer, Slic3rPE, Slic3r, Cura, Simplify3D,
-    KISSlicer, IdeaMaker, IceSL
+    KISSlicer, IdeaMaker, IceSL, Creality
 ]
 SUPPORTED_DATA = [
     'layer_height', 'first_layer_height', 'object_height',
@@ -698,11 +843,17 @@ def extract_metadata(file_path: str) -> Dict[str, Any]:
             slicer = UnknownSlicer(file_path)
             metadata['slicer'] = "Unknown"
         if size > READ_SIZE * 2:
-            f.seek(size - READ_SIZE)
-            footer_data = f.read()
+            if type(slicer) == Creality:
+                footer_data = header_data
+            else:
+                f.seek(size - READ_SIZE)
+                footer_data = f.read()
         elif size > READ_SIZE:
-            remaining = size - READ_SIZE
-            footer_data = header_data[remaining - READ_SIZE:] + f.read()
+            if type(slicer) == Creality:
+                footer_data = header_data
+            else:
+                remaining = size - READ_SIZE
+                footer_data = header_data[remaining - READ_SIZE:] + f.read()
         else:
             footer_data = header_data
         slicer.set_data(header_data, footer_data, size)

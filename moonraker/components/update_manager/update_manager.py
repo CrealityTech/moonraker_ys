@@ -72,7 +72,8 @@ class UpdateManager:
         self.event_loop = self.server.get_event_loop()
         self.app_config = config.read_supplemental_config(
             SUPPLEMENTAL_CFG_PATH)
-        auto_refresh_enabled = config.getboolean('enable_auto_refresh', False)
+        # auto_refresh_enabled = config.getboolean('enable_auto_refresh', False)
+        auto_refresh_enabled = False
         self.channel = config.get('channel', "dev")
         if self.channel not in ["dev", "beta"]:
             raise config.error(
@@ -80,29 +81,29 @@ class UpdateManager:
                 " [update_manager]")
         self.cmd_helper = CommandHelper(config)
         self.updaters: Dict[str, BaseDeploy] = {}
-        if config.getboolean('enable_system_updates', True):
-            self.updaters['system'] = PackageDeploy(config, self.cmd_helper)
-        if (
-            os.path.exists(KLIPPER_DEFAULT_PATH) and
-            os.path.exists(KLIPPER_DEFAULT_EXEC)
-        ):
-            self.updaters['klipper'] = get_deploy_class(KLIPPER_DEFAULT_PATH)(
-                self.app_config[f"update_manager klipper"], self.cmd_helper,
-                {
-                    'channel': self.channel,
-                    'path': KLIPPER_DEFAULT_PATH,
-                    'executable': KLIPPER_DEFAULT_EXEC
-                })
-        else:
-            self.updaters['klipper'] = BaseDeploy(
-                self.app_config[f"update_manager klipper"], self.cmd_helper)
-        self.updaters['moonraker'] = get_deploy_class(MOONRAKER_PATH)(
-            self.app_config[f"update_manager moonraker"], self.cmd_helper,
-            {
-                'channel': self.channel,
-                'path': MOONRAKER_PATH,
-                'executable': sys.executable
-            })
+        # if config.getboolean('enable_system_updates', True):
+        #     self.updaters['system'] = PackageDeploy(config, self.cmd_helper)
+        # if (
+        #     os.path.exists(KLIPPER_DEFAULT_PATH) and
+        #     os.path.exists(KLIPPER_DEFAULT_EXEC)
+        # ):
+        #     self.updaters['klipper'] = get_deploy_class(KLIPPER_DEFAULT_PATH)(
+        #         self.app_config[f"update_manager klipper"], self.cmd_helper,
+        #         {
+        #             'channel': self.channel,
+        #             'path': KLIPPER_DEFAULT_PATH,
+        #             'executable': KLIPPER_DEFAULT_EXEC
+        #         })
+        # else:
+        #     self.updaters['klipper'] = BaseDeploy(
+        #         self.app_config[f"update_manager klipper"], self.cmd_helper)
+        # self.updaters['moonraker'] = get_deploy_class(MOONRAKER_PATH)(
+        #     self.app_config[f"update_manager moonraker"], self.cmd_helper,
+        #     {
+        #         'channel': self.channel,
+        #         'path': MOONRAKER_PATH,
+        #         'executable': sys.executable
+        #     })
 
         # TODO: The below check may be removed when invalid config options
         # raise a config error.
@@ -114,22 +115,22 @@ class UpdateManager:
                 "The deprecated 'client_repo' and 'client_path' options\n"
                 "have been removed.  See Moonraker's configuration docs\n"
                 "for details on client configuration.")
-        client_sections = config.get_prefix_sections("update_manager ")
-        for section in client_sections:
-            cfg = config[section]
-            name = section.split()[-1]
-            if name in self.updaters:
-                raise config.error(f"Client repo {name} already added")
-            client_type = cfg.get("type")
-            if client_type in ["web", "web_beta"]:
-                self.updaters[name] = WebClientDeploy(cfg, self.cmd_helper)
-            elif client_type in ["git_repo", "zip", "zip_beta"]:
-                path = os.path.expanduser(cfg.get('path'))
-                self.updaters[name] = get_deploy_class(path)(
-                    cfg, self.cmd_helper)
-            else:
-                raise config.error(
-                    f"Invalid type '{client_type}' for section [{section}]")
+        # client_sections = config.get_prefix_sections("update_manager ")
+        # for section in client_sections:
+        #     cfg = config[section]
+        #     name = section.split()[-1]
+        #     if name in self.updaters:
+        #         raise config.error(f"Client repo {name} already added")
+        #     client_type = cfg.get("type")
+        #     if client_type in ["web", "web_beta"]:
+        #         self.updaters[name] = WebClientDeploy(cfg, self.cmd_helper)
+        #     elif client_type in ["git_repo", "zip", "zip_beta"]:
+        #         path = os.path.expanduser(cfg.get('path'))
+        #         self.updaters[name] = get_deploy_class(path)(
+        #             cfg, self.cmd_helper)
+        #     else:
+        #         raise config.error(
+        #             f"Invalid type '{client_type}' for section [{section}]")
 
         self.cmd_request_lock = asyncio.Lock()
         self.init_success: bool = False
@@ -138,38 +139,38 @@ class UpdateManager:
         # Auto Status Refresh
         self.last_refresh_time: float = 0
         self.refresh_cb: Optional[PeriodicCallback] = None
-        if auto_refresh_enabled:
-            self.refresh_cb = PeriodicCallback(
-                self._handle_auto_refresh,  # type: ignore
-                UPDATE_REFRESH_INTERVAL_MS)
+        # if auto_refresh_enabled:
+        #     self.refresh_cb = PeriodicCallback(
+        #         self._handle_auto_refresh,  # type: ignore
+        #         UPDATE_REFRESH_INTERVAL_MS)
 
-        self.server.register_endpoint(
-            "/machine/update/moonraker", ["POST"],
-            self._handle_update_request)
-        self.server.register_endpoint(
-            "/machine/update/klipper", ["POST"],
-            self._handle_update_request)
-        self.server.register_endpoint(
-            "/machine/update/system", ["POST"],
-            self._handle_update_request)
-        self.server.register_endpoint(
-            "/machine/update/client", ["POST"],
-            self._handle_update_request)
-        self.server.register_endpoint(
-            "/machine/update/full", ["POST"],
-            self._handle_full_update_request)
-        self.server.register_endpoint(
-            "/machine/update/status", ["GET"],
-            self._handle_status_request)
-        self.server.register_endpoint(
-            "/machine/update/recover", ["POST"],
-            self._handle_repo_recovery)
-        self.server.register_notification("update_manager:update_response")
-        self.server.register_notification("update_manager:update_refreshed")
+        # self.server.register_endpoint(
+        #     "/machine/update/moonraker", ["POST"],
+        #     self._handle_update_request)
+        # self.server.register_endpoint(
+        #     "/machine/update/klipper", ["POST"],
+        #     self._handle_update_request)
+        # self.server.register_endpoint(
+        #     "/machine/update/system", ["POST"],
+        #     self._handle_update_request)
+        # self.server.register_endpoint(
+        #     "/machine/update/client", ["POST"],
+        #     self._handle_update_request)
+        # self.server.register_endpoint(
+        #     "/machine/update/full", ["POST"],
+        #     self._handle_full_update_request)
+        # self.server.register_endpoint(
+        #     "/machine/update/status", ["GET"],
+        #     self._handle_status_request)
+        # self.server.register_endpoint(
+        #     "/machine/update/recover", ["POST"],
+        #     self._handle_repo_recovery)
+        # self.server.register_notification("update_manager:update_response")
+        # self.server.register_notification("update_manager:update_refreshed")
 
         # Register Ready Event
-        self.server.register_event_handler(
-            "server:klippy_identified", self._set_klipper_repo)
+        # self.server.register_event_handler(
+        #     "server:klippy_identified", self._set_klipper_repo)
 
     async def component_init(self) -> None:
         async with self.cmd_request_lock:
@@ -262,7 +263,7 @@ class UpdateManager:
         uinfo = self.cmd_helper.get_rate_limit_stats()
         uinfo['version_info'] = vinfo
         uinfo['busy'] = self.cmd_helper.is_update_busy()
-        self.server.send_event("update_manager:update_refreshed", uinfo)
+        # self.server.send_event("update_manager:update_refreshed", uinfo)
 
     async def _handle_update_request(self,
                                      web_request: WebRequest

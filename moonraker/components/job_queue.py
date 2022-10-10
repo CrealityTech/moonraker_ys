@@ -35,8 +35,7 @@ class JobQueue:
         self.job_delay = config.getfloat("job_transition_delay", 0.01)
         if self.job_delay <= 0.:
             raise config.error(
-                "Value for option 'job_transition_delay' in section [job_queue]"
-                " must be above 0.0")
+                """{"code":"key137", "msg": "Value for option 'job_transition_delay' in section [job_queue] must be above 0.0", "values": []}""")
         self.job_transition_gcode = config.get(
             "job_transition_gcode", "").strip()
         self.pop_queue_handle: Optional[asyncio.TimerHandle] = None
@@ -126,7 +125,7 @@ class JobQueue:
                     # the job transition gcode
                     if self.queue_state != "loading":
                         raise self.server.error(
-                            "Queue State Changed during Transition Gcode")
+                            """{"code":"key138", "msg": "Queue State Changed during Transition Gcode", "values": []}""")
                 self._set_queue_state("starting")
                 await kapis.start_print(filename)
             except self.server.error:
@@ -261,7 +260,7 @@ class JobQueue:
                                if f.strip()]
                 await self.delete_job(job_ids)
         else:
-            raise self.server.error(f"Invalid action: {action}")
+            raise self.server.error("""{"code":"key139", "msg": "Invalid action: %s", "values": ["%s"]}""")
         return {
             'queued_jobs': self._job_map_to_list(),
             'queue_state': self.queue_state

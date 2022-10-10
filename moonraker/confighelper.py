@@ -96,13 +96,15 @@ class ConfigHelper:
         except configparser.NoOptionError:
             if isinstance(default, SentinelClass):
                 raise ConfigError(
-                    f"No option found ({option}) in section [{self.section}]"
+                    """{"code":"key140", "msg": "No option found (%s) in section [%s]", "values": ["%s", "%s"]}""" % (option, self.section, option, self.section)
                 ) from None
             val = default
         except Exception:
             raise ConfigError(
-                f"Error parsing option ({option}) from "
-                f"section [{self.section}]")
+                """{"code":"key141", "msg": "Error parsing option (%s) from section [%s]", "values": ["%s", "%s"]}""" % (
+                    option, self.section, option, self.section
+                )
+            )
         else:
             self._check_option(option, val, above, below, minval, maxval)
         if self.section in self.orig_sections:
@@ -123,20 +125,28 @@ class ConfigHelper:
                       ) -> None:
         if above is not None and value <= above:
             raise self.error(
-                f"Config Error: Section [{self.section}], Option "
-                f"'{option}: {value}': value is not above {above}")
+                """{"code":"key142", "msg": "Config Error: Section [%s], Option %s: '%s': value is not above %s", "values": ["%s", "%s", "%s", "%s"]}""" % (
+                    self.section, option, value, above, self.section, option, value, above
+                )
+            )
         if below is not None and value >= below:
             raise self.error(
-                f"Config Error: Section [{self.section}], Option "
-                f"'{option}: {value}': value is not below {below}")
+                """{"code":"key143", "msg": "Config Error: Section [%s], Option '%s: %s': value is not below %s", "values": ["%s", "%s", "%s", "%s"]}""" % (
+                    self.section, option, value, below, self.section, option, value, below
+                )
+            )
         if minval is not None and value < minval:
             raise self.error(
-                f"Config Error: Section [{self.section}], Option "
-                f"'{option}: {value}': value is below minimum value {minval}")
+                """{"code":"key144", "msg": "Config Error: Section [%s], Option '%s: %s': value is below minimum value %s", "values": ["%s", "%s", "%s", "%s"]}""" % (
+                    self.section, option, value, minval, self.section, option, value, minval
+                )
+            )
         if maxval is not None and value > maxval:
             raise self.error(
-                f"Config Error: Section [{self.section}], Option "
-                f"'{option}: {value}': value is above maximum value {minval}")
+                """{"code":"key145", "msg": "Config Error: Section [%s], Option '%s: %s': value is above maximum value %s", "values": ["%s", "%s", "%s", "%s"]}""" % (
+                    self.section, option, value, minval, self.section, option, value, minval
+                )
+            )
 
     def get(self,
             option: str,
@@ -185,9 +195,10 @@ class ConfigHelper:
                  ) -> Union[List[Any], _T]:
         if count is not None and len(count) != len(separators):
             raise ConfigError(
-                f"Option '{option}' in section "
-                f"[{self.section}]: length of 'count' argument must ",
-                "match length of 'separators' argument")
+                """{"code":"key146", "msg": "Option '%s' in section [%s]: length of 'count' argument must match length of 'separators' argument", "values": ["%s", "%s"]}""" % (
+                    option, self.section, option, self.section
+                )
+            )
         else:
             count = tuple(None for _ in range(len(separators)))
 
@@ -212,8 +223,10 @@ class ConfigHelper:
                        if val.strip()]
             if cnt is not None and len(ret) != cnt:
                 raise ConfigError(
-                    f"List length mismatch, expected {cnt}, "
-                    f"parsed {len(ret)}")
+                    """{"code":"key147", "msg": "List length mismatch, expected %s, parsed {%d}", "values": ["%s", %d]}""" % (
+                        cnt, len(ret), cnt, len(ret)
+                    )
+                )
             return ret
 
         def getlist_wrapper(sec: str, opt: str) -> List[Any]:
@@ -257,8 +270,7 @@ class ConfigHelper:
                 ) -> Union[Dict[str, Any], _T]:
         if len(separators) != 2:
             raise ConfigError(
-                "The `separators` argument of getdict() must be a Tuple"
-                "of length of 2")
+               """{"code":"key148", "msg": "The `separators` argument of getdict() must be a Tuple of length of 2", "values": []}""")
 
         def getdict_wrapper(sec: str, opt: str) -> Dict[str, Any]:
             val = self.config.get(sec, opt)
@@ -273,7 +285,8 @@ class ConfigHelper:
                         ret[parts[0].strip()] = None
                     else:
                         raise ConfigError(
-                            f"Failed to parse dictionary field, {line}")
+                            """{"code":"key149", "msg": "Failed to parse dictionary field, %s", "values": ["%s"]}""" % (line, line)
+                        )
                 else:
                     ret[parts[0].strip()] = dict_type(parts[1].strip())
             return ret
@@ -290,7 +303,11 @@ class ConfigHelper:
         if gpio is None:
             raise ConfigError(
                 f"Section [{self.section}], option '{option}', "
-                "GPIO Component not available")
+                "GPIO Component not available"
+                """{"code":"key150", "msg": "Section [%s}], option '%s', GPIO Component not available", "values": ["%s", "%s"]}""" % (
+                    self.section, option, self.section, option
+                )
+            )
 
         def getgpio_wrapper(sec: str, opt: str) -> GpioOutputPin:
             val = self.config.get(sec, opt)
@@ -302,12 +319,15 @@ class ConfigHelper:
         cfg_file_path = os.path.normpath(os.path.expanduser(file_name))
         if not os.path.isfile(cfg_file_path):
             raise ConfigError(
-                f"Configuration File Not Found: '{cfg_file_path}''")
+                """{"code":"key151", "msg": "Configuration File Not Found: '%s'", "values": ["%s"]}""" % (cfg_file_path, cfg_file_path)
+            )
         try:
             sup_cfg = configparser.ConfigParser(interpolation=None)
             sup_cfg.read(cfg_file_path)
         except Exception:
-            raise ConfigError(f"Error Reading Config: '{cfg_file_path}'")
+            raise ConfigError(
+                              """{"code":"key152", "msg": "Error Reading Config: '%s'", "values": ["%s"]}""" % (cfg_file_path, cfg_file_path)
+                              )
         sections = sup_cfg.sections()
         return ConfigHelper(self.server, sup_cfg, sections[0], sections)
 
@@ -320,21 +340,22 @@ class ConfigHelper:
     def validate_config(self) -> None:
         for sect in self.orig_sections:
             if sect not in self.parsed:
+                if "update_manager" in sect:
+                    continue
                 self.server.add_warning(
-                    f"Unparsed config section [{sect}] detected.  This "
-                    "may be the result of a component that failed to "
-                    "load.  In the future this will result in a startup "
-                    "error.")
+                    """{"code":"key153", "msg": "Unparsed config section [%s] detected. This may be the result of a component that failed to load. \nIn the future this will result in a startup error.", "values": ["%s"]}""" % (
+                        sect, sect
+                    )
+                )
                 continue
             parsed_opts = self.parsed[sect]
             for opt, val in self.config.items(sect):
                 if opt not in parsed_opts:
                     self.server.add_warning(
-                        f"Unparsed config option '{opt}: {val}' detected in "
-                        f"section [{sect}].  This may be an option no longer "
-                        "available or could be the result of a module that "
-                        "failed to load.  In the future this will result "
-                        "in a startup error.")
+                        """{"code":"key154", "msg": "Unparsed config option '%s: %s' detected in section [%s]. This may be an option no longer available or could be the result of a module that failed to load. In the future this will result in a startup error.", "values": ["%s", "%s", "%s"]}""" % (
+                            opt, val, sect, opt, val, sect
+                        )
+                    )
 
 def get_configuration(server: Server,
                       app_args: Dict[str, Any]
@@ -346,8 +367,10 @@ def get_configuration(server: Server,
             f"Configuration File Not Found: '{cfg_file_path}''")
     if not os.access(cfg_file_path, os.R_OK | os.W_OK):
         raise ConfigError(
-            "Moonraker does not have Read/Write permission for "
-            f"config file at path '{cfg_file_path}'")
+            """{"code":"key155", "msg": "Moonraker does not have Read/Write permission for config file at path '%s'", "values": ["%s"]}""" % (
+                cfg_file_path, cfg_file_path
+            )
+        )
     config = configparser.ConfigParser(interpolation=None)
     try:
         config.read(cfg_file_path)
@@ -356,7 +379,9 @@ def get_configuration(server: Server,
     try:
         server_cfg = config['server']
     except KeyError:
-        raise ConfigError("No section [server] in config")
+        raise ConfigError(
+                          """{"code":"key156", "msg": "Stepper %s phase unknown", "values": ["%s"]}"""
+                          )
 
     orig_sections = config.sections()
     try:

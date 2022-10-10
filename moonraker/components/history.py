@@ -175,7 +175,7 @@ class History:
                                       ) -> Dict[str, Dict[str, float]]:
         if self.current_job is not None:
             raise self.server.error(
-                "Job in progress, cannot reset totals")
+                """{"code": "key18", "msg": "Job in progress, cannot reset totals"}""")
         last_totals = dict(self.job_totals)
         self.job_totals = {
             'total_jobs': 0,
