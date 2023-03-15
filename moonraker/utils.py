@@ -137,7 +137,8 @@ def setup_logging(app_args: Dict[str, Any]
         file_hdlr = MoonrakerLoggingHandler(
             app_args, maxBytes=20 * 1024 * 1024, backupCount=3, mode='a')
         formatter = logging.Formatter(
-            '%(asctime)s [%(filename)s:%(funcName)s()] - %(message)s')
+            # '%(asctime)s [%(filename)s:%(funcName)s()] - %(message)s')
+            '[%(levelname)s] %(asctime)s [%(name)s] [%(module)s:%(funcName)s:%(lineno)d] %(message)s')
         file_hdlr.setFormatter(formatter)
         listener = logging.handlers.QueueListener(
             queue, file_hdlr, stdout_hdlr)

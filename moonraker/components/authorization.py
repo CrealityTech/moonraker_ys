@@ -576,12 +576,43 @@ class Authorization:
             return True
         return False
 
+    def get_host_ip(self):
+        import socket
+        ip = ""
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(('8.8.8.8', 80))
+            ip = s.getsockname()[0]
+        except Exception as err:
+            logging.exception(err)
+        finally:
+            s.close()
+        return ip
+
     def _check_trusted_connection(self,
                                   ip: Optional[IPAddr]
                                   ) -> Optional[Dict[str, Any]]:
         if ip is not None:
             curtime = time.time()
             exp_time = curtime + TRUSTED_CONNECTION_TIMEOUT
+            try:
+                host_ip = self.get_host_ip()
+                ret1 = host_ip.split(".")[0]
+                ret2 = str(ip).split(".")[0]
+                if host_ip and ret1 == ret2:
+                    if ip not in self.trusted_users:
+                        logging.info(f"Trusted Connection Detected, IP: {ip}")
+                        self.trusted_users[ip] = {
+                            'username': TRUSTED_USER,
+                            'password': None,
+                            'created_on': curtime,
+                            'expires_at': exp_time
+                        }
+                    else:
+                        self.trusted_users[ip]['expires_at'] = exp_time
+                    return self.trusted_users[ip]
+            except Exception as err:
+                logging.error(err)
             if ip in self.trusted_users:
                 self.trusted_users[ip]['expires_at'] = exp_time
                 return self.trusted_users[ip]
@@ -706,6 +737,7 @@ class Authorization:
                 "Access-Control-Allow-Headers",
                 "Origin, Accept, Content-Type, X-Requested-With, "
                 "X-CRSF-Token, Authorization, X-Access-Token, "
+                 "CXSW-OS-LANG, HTTP-CXSW-OS-LANG, CXSW_ORIGIN, HTTP-CXSW-ORIGIN,"
                 "X-Api-Key")
 
     def close(self) -> None:

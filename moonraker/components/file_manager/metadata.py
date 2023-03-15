@@ -758,6 +758,63 @@ class Creality(BaseSlicer):
         return total_time
 
     def parse_thumbnails(self) -> Optional[List[Dict[str, Any]]]:
+        # ; png begin 96*96 8532 1 113 288
+        try:
+            thumb_matches = []
+            rets = []
+            infos = {"1": [32, 32], "2": [300, 300]}
+            for data in [self.header_data, self.footer_data]:
+                rets = re.findall("; png begin(.*)", data)
+                if rets and len(rets) > 1:
+                    if "*" in rets[0]:
+                        infos["1"] = [rets[0].split(" ")[1].split("*")[0], rets[0].split(" ")[1].split("*")[1]]
+                        infos["2"] = [rets[1].split(" ")[1].split("*")[0], rets[1].split(" ")[1].split("*")[1]]
+                    rets[0] = rets[0].replace("*", "\*")
+                    rets[1] = rets[1].replace("*", "\*")
+                    thumb_matches += re.findall("; png begin%s([\s\S]*?); png end" % rets[0], data)
+                    thumb_matches += re.findall("; png begin%s([\s\S]*); png end" % rets[1], data)
+                elif len(rets) == 1:
+                    if "*" in rets[0]:
+                        infos["1"] = [rets[0].split(" ")[1].split("*")[0], rets[0].split(" ")[1].split("*")[1]]
+                    rets[0] = rets[0].replace("*", "\*")
+                    thumb_matches += re.findall("; png begin%s([\s\S]*); png end" % rets[0], data)
+                if thumb_matches:
+                    break
+            else:
+                return None
+            thumb_dir = os.path.join(os.path.dirname(self.path), ".thumbs")
+            if not os.path.exists(thumb_dir):
+                try:
+                    os.mkdir(thumb_dir)
+                except Exception:
+                    log_to_stderr(f"Unable to create thumb dir: {thumb_dir}")
+                    return None
+            thumb_base = os.path.splitext(os.path.basename(self.path))[0]
+            parsed_matches: List[Dict[str, Any]] = []
+            count = 1
+            for match in thumb_matches:
+                lines = re.split(r"\r?\n", match.replace('; ', ''))
+                info = infos.get(str(count))
+                count += 1
+                if count == 3:
+                    break
+                data = "".join(lines[1:-1])
+                thumb_name = f"{thumb_base}-{info[0]}x{info[1]}.png"
+                thumb_path = os.path.join(thumb_dir, thumb_name)
+                rel_thumb_path = os.path.join(".thumbs", thumb_name)
+                with open(thumb_path, "wb") as f:
+                    f.write(base64.b64decode(data.encode()))
+                    f.flush()
+                parsed_matches.append({
+                    'width': info[0], 'height': info[1],
+                    'size': os.path.getsize(thumb_path),
+                    'relative_path': rel_thumb_path})
+        except Exception as err:
+            log_to_stderr(f"Creality(BaseSlicer) parse_thumbnails err: {err}")
+            parsed_matches: List[Dict[str, Any]] = []
+        return parsed_matches
+
+    def parse_thumbnails_old(self) -> Optional[List[Dict[str, Any]]]:
         for data in [self.header_data, self.footer_data]:
             thumb_matches: List[str] = re.findall(
                 r"; png begin[;/\+=\w\s]+?; png end", data)

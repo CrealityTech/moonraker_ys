@@ -146,8 +146,14 @@ def read_config():
             y_offset = float(
                 cp.get('bltouch', 'y_offset').split('#')[0].strip())
         except:
-            x_offset = 0.0
-            y_offset = 0.0
+            try:
+                x_offset = float(
+                    cp.get('probe', 'x_offset').split('#')[0].strip())
+                y_offset = float(
+                    cp.get('probe', 'y_offset').split('#')[0].strip())
+            except:
+                x_offset = 0.0
+                y_offset = 0.0
 
         return probe_count, mesh_min, mesh_max, x_offset, y_offset
     except Exception as e:

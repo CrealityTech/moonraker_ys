@@ -544,7 +544,8 @@ class FileManager:
                     line_data = str(f.readline())
                     if line_data.startswith(
                         "; png begin 300*300") or line_data.startswith(
-                        "; thumbnail begin 300*300"):
+                        "; thumbnail begin 300*300") or line_data.startswith("; png begin 600*600") or \
+                        line_data.startswith("; thumbnail begin 600*600"):
                         flag = True
                         count += 1
                         continue
@@ -600,11 +601,11 @@ class FileManager:
                 self.add_png_data(file_name)
             except Exception as err:
                 pass
-        if upload_info.get("filename", "").endswith(".gcode"):
-            try:
-                self.create_fluidd_png(upload_info.get("dest_path", ""))
-            except Exception as err:
-                pass
+        # if upload_info.get("filename", "").endswith(".gcode"):
+        #     try:
+        #         self.create_fluidd_png(upload_info.get("dest_path", ""))
+        #     except Exception as err:
+        #         pass
         while True:
             from subprocess import call
             time.sleep(2.0)
@@ -1286,6 +1287,16 @@ class INotifyHandler:
     def parse_gcode_metadata(self, file_path: str) -> asyncio.Event:
         rel_path = self.file_manager.get_relative_path("gcodes", file_path)
         try:
+            if "/mnt/UDISK/.crealityprint/upload/upload" in file_path:
+                if os.path.islink("/mnt/UDISK/.crealityprint/upload/upload"):
+                    os.system("rm -f /mnt/UDISK/.crealityprint/upload/upload")
+                evt = asyncio.Event()
+                evt.set()
+                return evt
+            if file_path.endswith("png"):
+                evt = asyncio.Event()
+                evt.set()
+                return evt
             path_info = self.file_manager.get_path_info(file_path, "gcodes")
         except Exception:
             logging.exception(

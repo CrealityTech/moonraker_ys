@@ -21,6 +21,9 @@ from typing import (
     Dict,
     List
 )
+
+import yaml
+
 if TYPE_CHECKING:
     from confighelper import ConfigHelper
     from websockets import WebRequest
@@ -75,6 +78,9 @@ class Machine:
         self.server.register_endpoint(
             "/machine/system_info", ['GET'],
             self._handle_sysinfo_request)
+        self.server.register_endpoint(
+            "/machine/multi_machine", ['GET'],
+            self._handle_multi_printer_info_request)
 
         self.server.register_notification("machine:service_state_changed")
 
@@ -160,6 +166,236 @@ class Machine:
                                       web_request: WebRequest
                                       ) -> Dict[str, Any]:
         return {'system_info': self.system_info}
+
+    async def _handle_multi_printer_info_request(self,
+                                      web_request: WebRequest
+                                      ) -> Dict[str, Any]:
+        """
+        当前已添加过设备列表
+        number: 打印机编号
+        serial: 串口ID
+        moonraker_port: moonraker的端口号
+        status: status: 0断联 1空闲 2正在打印中
+        :param args:
+        :param kwargs:
+        :return:
+        """
+        from components.printer_list import PRINTER_LIST
+        def get_host_ip():
+            """
+            查询本机ip地址
+            :return: ip
+            """
+            import socket
+            ip = "127.0.0.1"
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(('8.8.8.8', 80))
+                ip = s.getsockname()[0]
+            except Exception as err:
+                logging.exception(err)
+            finally:
+                s.close()
+            return ip
+
+        ip = get_host_ip()
+
+        def get_printer_status(printer_id):
+            print_stat_path = "/mnt/UDISK/.crealityprint/printer%s_stat" % printer_id
+            status = 0
+            if os.path.exists(print_stat_path):
+                try:
+                    status = int(open(print_stat_path).read())
+                except:
+                    status = 0
+            return status
+
+        def get_printer_model(path):
+            """
+            获取打印机型号
+            path = 'printer.cfg'
+            """
+            try:
+                if not os.path.exists(path):
+                    return None
+                try:
+                    f = open(path)
+                    line = f.readline()
+                except:
+                    f = open(path, encoding='gbk')
+                    line = f.readline()
+                # logger.info("{} read line is {}".format(path, line))
+                # !Ender3V2
+                if "!" in line:
+                    printer_model = line.split("!")[1].strip()
+                    # logger.info("{} read printer_model is {}".format(path, printer_model))
+                else:
+                    printer_model = None
+                return printer_model
+            except Exception as e:
+                logging.exception(e)
+                return None
+
+        def get_printer_png(printer_model=None):
+            """获取机型图片"""
+            # ip_addr = get_host_ip()
+            pre_addr = "http://{ip_addr}:9005/".format(
+                ip_addr=ip)
+            printer_image_path = pre_addr + "klipper-brain_printer_config/png/other.png"
+            if printer_model:
+                for v in PRINTER_LIST.values():
+                    for v1 in v.values():
+                        for v2 in v1:
+                            # logger.error(v2)
+                            if printer_model == v2.get("printer_model"):
+                                return pre_addr + v2.get("image")
+            return printer_image_path
+
+        def get_printer_info(path):
+            # ip_addr = get_host_ip()
+            printer_type = get_printer_model(path)
+            printer_type = printer_type if printer_type else "unknown"
+            printer_image_path = get_printer_png(printer_type)
+            return printer_type, printer_image_path
+
+        def read_total_print_time(printer_id):
+            try:
+                # with open('/mnt/UDISK/.crealityprint/printer%s_totaltime' % printer_id) as f:
+                #     return int(f.read())
+                import requests
+                port = 7125 + int(printer_id) - 1
+                url = f"http://127.0.0.1:{port}/server/history/totals"
+                res = requests.get(url)
+                res_json = res.json()
+                return int(res_json["result"]["job_totals"]["total_time"] / 60)
+            except:
+                return 0
+
+        def get_bltouch_z_offset(path):
+            """获取Z轴补偿位置"""
+            bltouch_z_offset = 0.0
+            bltouch_z_status = False
+            try:
+                import configparser
+                cp = configparser.ConfigParser()
+                try:
+                    cp.read(path, encoding="utf8")
+                except Exception as e:
+                    cp.read(path, encoding="gbk")
+                try:
+                    bltouch_z_offset = float(cp.get('bltouch', 'z_offset'))
+                    bltouch_z_status = True
+                    return bltouch_z_offset, bltouch_z_status
+                except Exception as e:
+                    try:
+                        with open(path, encoding="utf8") as f:
+                            result = f.readlines()
+                            bltouch_z_status = False
+                            for line in result:
+                                if '#*# [bltouch]' in line:
+                                    bltouch_z_status = True
+                                elif bltouch_z_status and '#*# z_offset' in line:
+                                    bltouch_z_offset = float(line.split('=')[1])
+                                    return bltouch_z_offset, bltouch_z_status
+                    except Exception as e:
+                        # logger.exception(e)
+                        with open(path, encoding="gbk") as f:
+                            result = f.readlines()
+                            bltouch_z_status = False
+                            for line in result:
+                                if '#*# [bltouch]' in line:
+                                    bltouch_z_status = True
+                                elif bltouch_z_status and '#*# z_offset' in result:
+                                    bltouch_z_offset = float(line.split('=')[1])
+                                    return bltouch_z_offset, bltouch_z_status
+            except Exception as e:
+                # logger.exception(e)
+                logging.info("get_bltouch_z_offset no bltouch")
+            return bltouch_z_offset, bltouch_z_status
+        def get_yaml_info(_config_file=None):
+            """
+            读取yaml文件信息
+            """
+            if not _config_file:
+                return {}
+            if not os.path.isfile(_config_file):
+                return {}
+            with open(_config_file, 'r', encoding='utf-8') as f:
+                config_data = yaml.load(f.read(), Loader=yaml.Loader)
+            return config_data
+
+        def get_printer_is_img_touch(printer_model=None):
+            """获取机型图片是否带touch"""
+            is_img_touch = False
+            if printer_model:
+                for v in PRINTER_LIST.values():
+                    for v1 in v.values():
+                        for v2 in v1:
+                            if printer_model == v2.get("printer_model"):
+                                return v2.get("is_img_touch")
+            return is_img_touch
+
+        def get_multi_printer():
+            """获取已添加打印设备列表"""
+            current_multi_printer_info = []
+            for i in range(1, 5):
+                new_printer_info = {}
+                printer_path = f"/mnt/UDISK/.crealityprint/printer_{i}.yaml"
+                printer_info = get_yaml_info(printer_path)
+                if printer_info:
+                    new_printer_info["printer_id"] = i
+                    new_printer_info["machine_name"] = printer_info.get("name")
+                    new_printer_info["total_print_time"] = read_total_print_time(i)
+                    z_offset, bltouch_status = get_bltouch_z_offset(
+                        printer_path)
+                    new_printer_info["touch_status"] = bltouch_status
+                    # printer_info["is_img_touch"] = get_printer_is_img_touch()
+                    current_multi_printer_info.append(new_printer_info)
+            for printer_info in current_multi_printer_info:
+                printer_id = printer_info.get('printer_id')
+                if int(printer_id) == 1:
+                    path = "/mnt/UDISK/printer_config/printer.cfg"
+                else:
+                    path = "/mnt/UDISK/printer_config{}/printer.cfg".format(
+                        printer_id)
+                printer_type, local_printer_image_path = get_printer_info(path)
+                printer_info["machine_type"] = printer_type
+                printer_info["ip"] = ip
+                printer_info["moonraker_port"] = 7125 + int(printer_id) - 1
+                if int(printer_id) == 1:
+                    printer_info["fluidd_port"] = 80
+                    printer_info["mainsail_port"] = 8819
+                else:
+                    printer_info["fluidd_port"] = 8010 + int(printer_id)
+                    # printer_info["mainsail_port"] = 8819 + int(printer_id) - 1
+                    printer_info["mainsail_port"] = 8819
+                printer_info["moonraker_port"] = 7125 + int(printer_id) - 1
+                printer_info["printer_image_path"] = local_printer_image_path
+                printer_info["status"] = get_printer_status(printer_id)
+                z_offset, bltouch_status = get_bltouch_z_offset(path)
+                printer_info["touch_status"] = bltouch_status
+                printer_info["is_img_touch"] = get_printer_is_img_touch(printer_type)
+            return current_multi_printer_info
+
+        multi_printer_info = get_multi_printer()
+        if not multi_printer_info:
+            path = "/mnt/UDISK/printer_config/printer.cfg"
+            printer_info = {"printer_id": 1, "machine_name": "Ender-3S1", "total_print_time": 225,
+                           "machine_type": "CR6 SE", "moonraker_port": 7125,
+                           "printer_image_path": "http://127.0.0.1:7001/klipper-brain_printer_config/CR6SE.png",
+                           "status": 0}
+            printer_type, printer_image_path = get_printer_info(path)
+            printer_info["machine_type"] = printer_type
+            printer_info["ip"] = ip
+            printer_info["machine_name"] = printer_type
+            printer_info["moonraker_port"] = 7125
+            printer_info["printer_image_path"] = printer_image_path
+            printer_info["status"] = get_printer_status(1)
+            printer_info["is_img_touch"] = get_printer_is_img_touch(printer_type)
+            z_offset, bltouch_status = get_bltouch_z_offset(path)
+            printer_info["touch_status"] = bltouch_status
+            multi_printer_info = [printer_info]
+        return {'multi_printer_info': multi_printer_info}
 
     async def _execute_cmd(self, cmd: str) -> None:
         shell_cmd: SCMDComp = self.server.lookup_component('shell_command')

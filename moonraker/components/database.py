@@ -167,6 +167,7 @@ class MoonrakerDatabase:
         if not self._insert_record(namespace, key_list[0], record):
             logging.info(
                 f"Error inserting key '{key}' in namespace '{namespace}'")
+        os.system("sync")
 
     def update_item(self,
                     namespace: str,
@@ -197,6 +198,7 @@ class MoonrakerDatabase:
         if not self._insert_record(namespace, key_list[0], record):
             logging.info(
                 f"Error updating key '{key}' in namespace '{namespace}'")
+        os.system("sync")
 
     def delete_item(self,
                     namespace: str,
@@ -229,6 +231,7 @@ class MoonrakerDatabase:
         if not ret:
             logging.info(
                 f"Error deleting key '{key}' from namespace '{namespace}'")
+        os.system("sync")
         return val
 
     def get_item(self,

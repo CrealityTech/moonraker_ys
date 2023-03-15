@@ -151,7 +151,8 @@ class MoonrakerApp:
 
         self.debug = config.getboolean('enable_debug_logging', False)
         log_level = logging.DEBUG if self.debug else logging.INFO
-        logging.getLogger().setLevel(log_level)
+        # logging.getLogger().setLevel(log_level)
+        logging.getLogger().setLevel(logging.ERROR)
         app_args: Dict[str, Any] = {
             'serve_traceback': self.debug,
             'websocket_ping_interval': 10,
